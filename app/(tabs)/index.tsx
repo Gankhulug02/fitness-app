@@ -1,98 +1,380 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
-
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+import { ThemedText } from "@/components/themed-text";
+import { ThemedView } from "@/components/themed-view";
+import { IconSymbol } from "@/components/ui/icon-symbol";
+import { Colors } from "@/constants/theme";
+import { useColorScheme } from "@/hooks/use-color-scheme";
+import { supabase } from "@/lib/supabase";
+import { useSupabase } from "@/lib/supabase-provider";
+import { Alert, Pressable, ScrollView, StyleSheet, View } from "react-native";
 
 export default function HomeScreen() {
-  return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+  const { session } = useSupabase();
+  const colorScheme = useColorScheme();
+  const colors = Colors[colorScheme ?? "light"];
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+  // Get user's first name from email
+  const userName = session?.user?.email?.split("@")[0] || "User";
+  const displayName = userName.charAt(0).toUpperCase() + userName.slice(1);
+
+  async function handleSignOut() {
+    Alert.alert("Sign Out", "Are you sure you want to sign out?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Sign Out",
+        style: "destructive",
+        onPress: async () => {
+          await supabase.auth.signOut();
+        },
+      },
+    ]);
+  }
+
+  return (
+    <ThemedView style={styles.container}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Header */}
+        <ThemedView style={styles.header}>
+          <View>
+            <ThemedText type="title" style={styles.greeting}>
+              Hello, {displayName}! 👋
+            </ThemedText>
+            <ThemedText style={styles.subtitle}>
+              Ready for your workout?
+            </ThemedText>
+          </View>
+          <Pressable
+            onPress={handleSignOut}
+            style={[styles.logoutButton, { borderColor: colors.icon }]}
+          >
+            <IconSymbol
+              name="rectangle.portrait.and.arrow.right"
+              size={24}
+              color={colors.text}
+            />
+          </Pressable>
+        </ThemedView>
+
+        {/* Today's Goal Card */}
+        <ThemedView style={[styles.goalCard, { backgroundColor: colors.tint }]}>
+          <View style={styles.goalHeader}>
+            <ThemedText style={styles.goalTitle}>Today's Goal</ThemedText>
+            <IconSymbol name="target" size={32} color="#fff" />
+          </View>
+          <ThemedText style={styles.goalText}>
+            30 minutes of exercise
+          </ThemedText>
+          <View style={styles.progressBar}>
+            <View style={[styles.progressFill, { width: "0%" }]} />
+          </View>
+          <ThemedText style={styles.goalProgress}>0 / 30 minutes</ThemedText>
+        </ThemedView>
+
+        {/* Quick Actions */}
+        <View style={styles.quickActions}>
+          <Pressable
+            style={[
+              styles.actionCard,
+              { backgroundColor: colors.cardBackground },
+            ]}
+          >
+            <View
+              style={[
+                styles.actionIcon,
+                { backgroundColor: `${colors.actionWorkout}20` },
+              ]}
+            >
+              <IconSymbol
+                name="figure.run"
+                size={28}
+                color={colors.actionWorkout}
+              />
+            </View>
+            <ThemedText style={styles.actionText}>Start Workout</ThemedText>
+          </Pressable>
+
+          <Pressable
+            style={[
+              styles.actionCard,
+              { backgroundColor: colors.cardBackground },
+            ]}
+          >
+            <View
+              style={[
+                styles.actionIcon,
+                { backgroundColor: `${colors.actionNutrition}20` },
+              ]}
+            >
+              <IconSymbol
+                name="fork.knife"
+                size={28}
+                color={colors.actionNutrition}
+              />
+            </View>
+            <ThemedText style={styles.actionText}>Log Meal</ThemedText>
+          </Pressable>
+
+          <Pressable
+            style={[
+              styles.actionCard,
+              { backgroundColor: colors.cardBackground },
+            ]}
+          >
+            <View
+              style={[
+                styles.actionIcon,
+                { backgroundColor: `${colors.actionStats}20` },
+              ]}
+            >
+              <IconSymbol
+                name="chart.bar.fill"
+                size={28}
+                color={colors.actionStats}
+              />
+            </View>
+            <ThemedText style={styles.actionText}>View Stats</ThemedText>
+          </Pressable>
+
+          <Pressable
+            style={[
+              styles.actionCard,
+              { backgroundColor: colors.cardBackground },
+            ]}
+          >
+            <View
+              style={[
+                styles.actionIcon,
+                { backgroundColor: `${colors.actionHealth}20` },
+              ]}
+            >
+              <IconSymbol
+                name="heart.fill"
+                size={28}
+                color={colors.actionHealth}
+              />
+            </View>
+            <ThemedText style={styles.actionText}>Health</ThemedText>
+          </Pressable>
+        </View>
+
+        {/* Stats Overview */}
+        <ThemedView style={styles.statsSection}>
+          <ThemedText type="subtitle" style={styles.sectionTitle}>
+            This Week
+          </ThemedText>
+          <View style={styles.statsGrid}>
+            <ThemedView
+              style={[
+                styles.statCard,
+                { backgroundColor: colors.cardBackground },
+              ]}
+            >
+              <IconSymbol
+                name="flame.fill"
+                size={24}
+                color={colors.actionWorkout}
+              />
+              <ThemedText style={styles.statValue}>0</ThemedText>
+              <ThemedText style={styles.statLabel}>Workouts</ThemedText>
+            </ThemedView>
+
+            <ThemedView
+              style={[
+                styles.statCard,
+                { backgroundColor: colors.cardBackground },
+              ]}
+            >
+              <IconSymbol
+                name="clock.fill"
+                size={24}
+                color={colors.actionNutrition}
+              />
+              <ThemedText style={styles.statValue}>0h</ThemedText>
+              <ThemedText style={styles.statLabel}>Duration</ThemedText>
+            </ThemedView>
+
+            <ThemedView
+              style={[
+                styles.statCard,
+                { backgroundColor: colors.cardBackground },
+              ]}
+            >
+              <IconSymbol
+                name="bolt.fill"
+                size={24}
+                color={colors.actionHealth}
+              />
+              <ThemedText style={styles.statValue}>0</ThemedText>
+              <ThemedText style={styles.statLabel}>Calories</ThemedText>
+            </ThemedView>
+          </View>
+        </ThemedView>
+
+        {/* Recent Activity */}
+        <ThemedView style={styles.activitySection}>
+          <ThemedText type="subtitle" style={styles.sectionTitle}>
+            Recent Activity
+          </ThemedText>
+          <ThemedView
+            style={[
+              styles.emptyState,
+              { backgroundColor: colors.cardBackground },
+            ]}
+          >
+            <IconSymbol name="figure.walk" size={48} color={colors.icon} />
+            <ThemedText style={styles.emptyText}>No workouts yet</ThemedText>
+            <ThemedText style={[styles.emptySubtext, { color: colors.icon }]}>
+              Start your first workout to see it here
+            </ThemedText>
+          </ThemedView>
+        </ThemedView>
+      </ScrollView>
+    </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  container: {
+    flex: 1,
   },
-  stepContainer: {
-    gap: 8,
+  content: {
+    padding: 20,
+    paddingTop: 60,
+    paddingBottom: 40,
+  },
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: 24,
+  },
+  greeting: {
+    fontSize: 28,
+    marginBottom: 4,
+  },
+  subtitle: {
+    fontSize: 16,
+    opacity: 0.7,
+  },
+  logoutButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  // Goal Card
+  goalCard: {
+    padding: 24,
+    borderRadius: 20,
+    marginBottom: 24,
+  },
+  goalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  goalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#fff",
+  },
+  goalText: {
+    fontSize: 16,
+    color: "#fff",
+    opacity: 0.9,
+    marginBottom: 16,
+  },
+  progressBar: {
+    height: 8,
+    backgroundColor: "rgba(255, 255, 255, 0.3)",
+    borderRadius: 4,
+    overflow: "hidden",
     marginBottom: 8,
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  progressFill: {
+    height: "100%",
+    backgroundColor: "#fff",
+    borderRadius: 4,
+  },
+  goalProgress: {
+    fontSize: 14,
+    color: "#fff",
+    opacity: 0.9,
+  },
+  // Quick Actions
+  quickActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+    marginBottom: 32,
+  },
+  actionCard: {
+    width: "48%",
+    padding: 20,
+    borderRadius: 16,
+    alignItems: "center",
+    gap: 12,
+  },
+  actionIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  actionText: {
+    fontSize: 14,
+    fontWeight: "600",
+    textAlign: "center",
+  },
+  // Stats Section
+  statsSection: {
+    marginBottom: 32,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    marginBottom: 16,
+  },
+  statsGrid: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  statCard: {
+    flex: 1,
+    padding: 20,
+    borderRadius: 16,
+    alignItems: "center",
+    gap: 8,
+  },
+  statValue: {
+    fontSize: 24,
+    fontWeight: "700",
+  },
+  statLabel: {
+    fontSize: 12,
+    opacity: 0.7,
+  },
+  // Activity Section
+  activitySection: {
+    marginBottom: 20,
+  },
+  emptyState: {
+    padding: 40,
+    borderRadius: 16,
+    alignItems: "center",
+    gap: 12,
+  },
+  emptyText: {
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  emptySubtext: {
+    fontSize: 14,
+    textAlign: "center",
   },
 });
