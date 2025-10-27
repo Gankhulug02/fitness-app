@@ -3,9 +3,12 @@ import { ThemedView } from "@/components/themed-view";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { Colors } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { supabase } from "@/lib/supabase";
+import { useSupabase } from "@/lib/supabase-provider";
 import { LinearGradient } from "expo-linear-gradient";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   FlatList,
   Pressable,
@@ -41,30 +44,19 @@ type WeekDay = {
 export default function TodoScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? "light"];
+  const { session } = useSupabase();
 
   const today = new Date();
   const todayString = today.toISOString().split("T")[0];
 
   const [selectedDate, setSelectedDate] = useState<string>(todayString);
-  const [workouts, setWorkouts] = useState<Workout[]>([
-    {
-      id: "1",
-      name: "Workout",
-      emoji: "🏋️",
-      completed: false,
-      date: todayString,
-      sets: [
-        { reps: 10, completed: false },
-        { reps: 10, completed: false },
-        { reps: 10, completed: false },
-      ],
-    },
-  ]);
+  const [workouts, setWorkouts] = useState<Workout[]>([]);
   const [showInput, setShowInput] = useState(false);
   const [newWorkout, setNewWorkout] = useState("");
   const [numSets, setNumSets] = useState("3");
   const [numReps, setNumReps] = useState("10");
   const [collapsed, setCollapsed] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   // Generate week days
   const getWeekDays = (): WeekDay[] => {
@@ -92,92 +84,184 @@ export default function TodoScreen() {
 
   const weekDays = getWeekDays();
 
-  const addWorkout = () => {
-    if (newWorkout.trim()) {
-      const sets = parseInt(numSets) || 3;
-      const reps = parseInt(numReps) || 10;
+  // Fetch workouts from Supabase
+  const fetchWorkouts = async () => {
+    if (!session?.user?.id) return;
 
-      const newItem: Workout = {
-        id: Date.now().toString(),
-        name: newWorkout.trim(),
-        emoji: "💪",
-        completed: false,
-        date: selectedDate,
-        sets: Array(sets)
-          .fill(null)
-          .map(() => ({
-            reps,
-            completed: false,
-          })),
-      };
-      setWorkouts([...workouts, newItem]);
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from("workouts")
+        .select("*")
+        .eq("user_id", session.user.id)
+        .eq("date", selectedDate)
+        .order("created_at", { ascending: true });
+
+      if (error) throw error;
+
+      if (data) {
+        setWorkouts(
+          data.map((w) => ({
+            ...w,
+            sets: w.sets as WorkoutSet[],
+          }))
+        );
+      }
+    } catch (error) {
+      console.error("Error fetching workouts:", error);
+      Alert.alert("Error", "Failed to load workouts");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Load workouts when component mounts or date changes
+  useEffect(() => {
+    if (session?.user?.id) {
+      fetchWorkouts();
+    } else {
+      setLoading(false);
+    }
+  }, [selectedDate, session?.user?.id]);
+
+  const addWorkout = async () => {
+    if (!newWorkout.trim() || !session?.user?.id) return;
+
+    const sets = parseInt(numSets) || 3;
+    const reps = parseInt(numReps) || 10;
+
+    try {
+      const { data, error } = await supabase
+        .from("workouts")
+        .insert({
+          user_id: session.user.id,
+          name: newWorkout.trim(),
+          emoji: "💪",
+          date: selectedDate,
+          sets: Array(sets)
+            .fill(null)
+            .map(() => ({
+              reps,
+              completed: false,
+            })),
+          completed: false,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      if (data) {
+        setWorkouts([
+          ...workouts,
+          {
+            ...data,
+            sets: data.sets as WorkoutSet[],
+          },
+        ]);
+      }
+
       setNewWorkout("");
       setNumSets("3");
       setNumReps("10");
       setShowInput(false);
+    } catch (error) {
+      console.error("Error adding workout:", error);
+      Alert.alert("Error", "Failed to add workout");
     }
   };
 
-  const toggleWorkout = (id: string) => {
-    setWorkouts(
-      workouts.map((workout) => {
-        if (workout.id === id) {
-          const allCompleted = workout.sets.every((set) => set.completed);
-          const newSets = workout.sets.map((set) => ({
-            ...set,
-            completed: !allCompleted,
-          }));
-          return {
-            ...workout,
-            completed: !allCompleted,
-            sets: newSets,
-          };
-        }
-        return workout;
-      })
-    );
+  const toggleWorkout = async (id: string) => {
+    const workout = workouts.find((w) => w.id === id);
+    if (!workout) return;
+
+    const allCompleted = workout.sets.every((set) => set.completed);
+    const newSets = workout.sets.map((set) => ({
+      ...set,
+      completed: !allCompleted,
+    }));
+
+    try {
+      const { error } = await supabase
+        .from("workouts")
+        .update({
+          sets: newSets,
+          completed: !allCompleted,
+        })
+        .eq("id", id);
+
+      if (error) throw error;
+
+      setWorkouts(
+        workouts.map((w) =>
+          w.id === id
+            ? {
+                ...w,
+                completed: !allCompleted,
+                sets: newSets,
+              }
+            : w
+        )
+      );
+    } catch (error) {
+      console.error("Error updating workout:", error);
+      Alert.alert("Error", "Failed to update workout");
+    }
   };
 
-  const completeNextSet = (workoutId: string) => {
-    setWorkouts(
-      workouts.map((workout) => {
-        if (workout.id === workoutId) {
-          // Check if all sets are already completed
-          const allCompleted = workout.sets.every((set) => set.completed);
+  const completeNextSet = async (workoutId: string) => {
+    const workout = workouts.find((w) => w.id === workoutId);
+    if (!workout) return;
 
-          if (allCompleted) {
-            // Reset all sets to uncompleted
-            const newSets = workout.sets.map((set) => ({
-              ...set,
-              completed: false,
-            }));
-            return {
-              ...workout,
-              sets: newSets,
-              completed: false,
-            };
-          } else {
-            // Find the first uncompleted set and complete it
-            const nextSetIndex = workout.sets.findIndex(
-              (set) => !set.completed
-            );
+    const allCompleted = workout.sets.every((set) => set.completed);
+    let newSets: WorkoutSet[];
+    let newCompleted: boolean;
 
-            if (nextSetIndex !== -1) {
-              const newSets = workout.sets.map((set, idx) =>
-                idx === nextSetIndex ? { ...set, completed: true } : set
-              );
-              const allNowCompleted = newSets.every((set) => set.completed);
-              return {
-                ...workout,
+    if (allCompleted) {
+      // Reset all sets to uncompleted
+      newSets = workout.sets.map((set) => ({
+        ...set,
+        completed: false,
+      }));
+      newCompleted = false;
+    } else {
+      // Find the first uncompleted set and complete it
+      const nextSetIndex = workout.sets.findIndex((set) => !set.completed);
+
+      if (nextSetIndex === -1) return;
+
+      newSets = workout.sets.map((set, idx) =>
+        idx === nextSetIndex ? { ...set, completed: true } : set
+      );
+      newCompleted = newSets.every((set) => set.completed);
+    }
+
+    try {
+      const { error } = await supabase
+        .from("workouts")
+        .update({
+          sets: newSets,
+          completed: newCompleted,
+        })
+        .eq("id", workoutId);
+
+      if (error) throw error;
+
+      setWorkouts(
+        workouts.map((w) =>
+          w.id === workoutId
+            ? {
+                ...w,
                 sets: newSets,
-                completed: allNowCompleted,
-              };
-            }
-          }
-        }
-        return workout;
-      })
-    );
+                completed: newCompleted,
+              }
+            : w
+        )
+      );
+    } catch (error) {
+      console.error("Error updating workout:", error);
+      Alert.alert("Error", "Failed to update workout");
+    }
   };
 
   const deleteWorkout = (id: string) => {
@@ -189,14 +273,28 @@ export default function TodoScreen() {
         {
           text: "Delete",
           style: "destructive",
-          onPress: () =>
-            setWorkouts(workouts.filter((workout) => workout.id !== id)),
+          onPress: async () => {
+            try {
+              const { error } = await supabase
+                .from("workouts")
+                .delete()
+                .eq("id", id);
+
+              if (error) throw error;
+
+              setWorkouts(workouts.filter((workout) => workout.id !== id));
+            } catch (error) {
+              console.error("Error deleting workout:", error);
+              Alert.alert("Error", "Failed to delete workout");
+            }
+          },
         },
       ]
     );
   };
 
-  const todaysWorkouts = workouts.filter((w) => w.date === selectedDate);
+  // Workouts are already filtered by date in the fetch
+  const todaysWorkouts = workouts;
 
   return (
     <View style={styles.container}>
@@ -395,126 +493,139 @@ export default function TodoScreen() {
         )}
 
         {/* Workout List */}
-        {!collapsed && (
-          <FlatList
-            data={todaysWorkouts}
-            keyExtractor={(item) => item.id}
-            contentContainerStyle={styles.listContent}
-            showsVerticalScrollIndicator={false}
-            renderItem={({ item }) => {
-              const completedSets = item.sets.filter((s) => s.completed).length;
-              const totalSets = item.sets.length;
+        {!collapsed &&
+          (loading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color={colors.tint} />
+            </View>
+          ) : (
+            <FlatList
+              data={todaysWorkouts}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={styles.listContent}
+              showsVerticalScrollIndicator={false}
+              renderItem={({ item }) => {
+                const completedSets = item.sets.filter(
+                  (s) => s.completed
+                ).length;
+                const totalSets = item.sets.length;
 
-              return (
-                <Pressable
-                  style={[
-                    styles.workoutCard,
-                    {
-                      backgroundColor:
-                        colorScheme === "dark" ? "#2C2C2E" : "#3A3A3C",
-                    },
-                  ]}
-                  onPress={() => completeNextSet(item.id)}
-                  onLongPress={() => deleteWorkout(item.id)}
-                >
-                  {/* Progress Bar - Full Width */}
-                  <View style={styles.progressBarContainer}>
-                    <View
-                      style={[
-                        styles.progressBar,
-                        {
-                          width: `${(completedSets / totalSets) * 100}%`,
-                          backgroundColor: item.completed
-                            ? "#4CD964"
-                            : "#FF9500",
-                        },
-                      ]}
-                    />
-                  </View>
+                return (
+                  <Pressable
+                    style={[
+                      styles.workoutCard,
+                      {
+                        backgroundColor:
+                          colorScheme === "dark" ? "#2C2C2E" : "#3A3A3C",
+                      },
+                    ]}
+                    onPress={() => completeNextSet(item.id)}
+                    onLongPress={() => deleteWorkout(item.id)}
+                  >
+                    {/* Progress Bar - Full Width */}
+                    <View style={styles.progressBarContainer}>
+                      <View
+                        style={[
+                          styles.progressBar,
+                          {
+                            width: `${(completedSets / totalSets) * 100}%`,
+                            backgroundColor: item.completed
+                              ? "#4CD964"
+                              : "#FF9500",
+                          },
+                        ]}
+                      />
+                    </View>
 
-                  <View style={styles.workoutContent}>
-                    <View style={styles.workoutMainRow}>
-                      <View style={styles.workoutLeft}>
-                        <Pressable
-                          style={[
-                            styles.checkbox,
-                            {
-                              borderColor: item.completed
-                                ? "#4CD964"
-                                : "#8E8E93",
-                              backgroundColor: item.completed
-                                ? "#4CD964"
-                                : "transparent",
-                            },
-                          ]}
-                          onPress={(e) => {
-                            e.stopPropagation();
-                            toggleWorkout(item.id);
-                          }}
-                        >
-                          {item.completed && (
-                            <IconSymbol
-                              name="checkmark"
-                              size={16}
-                              color="#fff"
-                            />
-                          )}
-                        </Pressable>
-
-                        <ThemedText style={styles.emoji}>
-                          {item.emoji}
-                        </ThemedText>
-
-                        <View style={styles.workoutInfo}>
-                          <ThemedText
+                    <View style={styles.workoutContent}>
+                      <View style={styles.workoutMainRow}>
+                        <View style={styles.workoutLeft}>
+                          <Pressable
                             style={[
-                              styles.workoutName,
-                              { color: "#fff" },
-                              item.completed && styles.workoutNameCompleted,
+                              styles.checkbox,
+                              {
+                                borderColor: item.completed
+                                  ? "#4CD964"
+                                  : "#8E8E93",
+                                backgroundColor: item.completed
+                                  ? "#4CD964"
+                                  : "transparent",
+                              },
                             ]}
+                            onPress={(e) => {
+                              e.stopPropagation();
+                              toggleWorkout(item.id);
+                            }}
                           >
-                            {item.name}
+                            {item.completed && (
+                              <IconSymbol
+                                name="checkmark"
+                                size={16}
+                                color="#fff"
+                              />
+                            )}
+                          </Pressable>
+
+                          <ThemedText style={styles.emoji}>
+                            {item.emoji}
                           </ThemedText>
+
+                          <View style={styles.workoutInfo}>
+                            <ThemedText
+                              style={[
+                                styles.workoutName,
+                                { color: "#fff" },
+                                item.completed && styles.workoutNameCompleted,
+                              ]}
+                            >
+                              {item.name}
+                            </ThemedText>
+                            <ThemedText
+                              style={[styles.setsInfo, { color: "#8E8E93" }]}
+                            >
+                              {item.sets[0]?.reps} reps × {totalSets} sets
+                            </ThemedText>
+                          </View>
+                        </View>
+
+                        <View style={styles.workoutRight}>
                           <ThemedText
-                            style={[styles.setsInfo, { color: "#8E8E93" }]}
+                            style={[styles.progress, { color: "#8E8E93" }]}
                           >
-                            {item.sets[0]?.reps} reps × {totalSets} sets
+                            {completedSets}/{totalSets}
                           </ThemedText>
                         </View>
                       </View>
-
-                      <View style={styles.workoutRight}>
-                        <ThemedText
-                          style={[styles.progress, { color: "#8E8E93" }]}
-                        >
-                          {completedSets}/{totalSets}
-                        </ThemedText>
                     </View>
-                  </View>
-                  </View>
-                </Pressable>
-              );
-            }}
-            ListEmptyComponent={
-              <ThemedView
-                style={[
-                  styles.emptyState,
-                  { backgroundColor: colors.cardBackground },
-                ]}
-              >
-                <IconSymbol name="figure.walk" size={64} color={colors.icon} />
-                <ThemedText style={styles.emptyText}>
-                  No workouts yet
-                </ThemedText>
-                <ThemedText
-                  style={[styles.emptySubtext, { color: colors.icon }]}
-                >
-                  Tap the calendar icon to add your first workout
-                </ThemedText>
-              </ThemedView>
-            }
-          />
-        )}
+                  </Pressable>
+                );
+              }}
+              ListEmptyComponent={
+                !loading ? (
+                  <ThemedView
+                    style={[
+                      styles.emptyState,
+                      { backgroundColor: colors.cardBackground },
+                    ]}
+                  >
+                    <IconSymbol
+                      name="figure.walk"
+                      size={64}
+                      color={colors.icon}
+                    />
+                    <ThemedText style={styles.emptyText}>
+                      No workouts yet
+                    </ThemedText>
+                    <ThemedText
+                      style={[styles.emptySubtext, { color: colors.icon }]}
+                    >
+                      Tap the calendar icon to add your first workout
+                    </ThemedText>
+                  </ThemedView>
+                ) : null
+              }
+            />
+          ))}
       </ThemedView>
     </View>
   );
@@ -731,6 +842,12 @@ const styles = StyleSheet.create({
   progress: {
     fontSize: 14,
     fontWeight: "500",
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 48,
   },
   emptyState: {
     padding: 48,
