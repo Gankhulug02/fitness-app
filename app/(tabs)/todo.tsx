@@ -6,10 +6,11 @@ import { useColorScheme } from "@/hooks/use-color-scheme";
 import { supabase } from "@/lib/supabase";
 import { useSupabase } from "@/lib/supabase-provider";
 import { LinearGradient } from "expo-linear-gradient";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   FlatList,
   Pressable,
   ScrollView,
@@ -40,6 +41,44 @@ type WeekDay = {
   isToday: boolean;
   dateString: string;
 };
+
+function AnimatedProgressBar({
+  progress,
+  isCompleted,
+}: {
+  progress: number;
+  isCompleted: boolean;
+}) {
+  const animatedWidth = useRef(new Animated.Value(progress)).current;
+
+  useEffect(() => {
+    Animated.spring(animatedWidth, {
+      toValue: progress,
+      useNativeDriver: false,
+      tension: 50,
+      friction: 7,
+    }).start();
+  }, [progress, animatedWidth]);
+
+  const backgroundColor = isCompleted ? "#4CD964" : "#FF9500";
+
+  return (
+    <View style={styles.progressBarContainer}>
+      <Animated.View
+        style={[
+          styles.progressBar,
+          {
+            width: animatedWidth.interpolate({
+              inputRange: [0, 1],
+              outputRange: ["0%", "100%"],
+            }),
+            backgroundColor,
+          },
+        ]}
+      />
+    </View>
+  );
+}
 
 export default function TodoScreen() {
   const colorScheme = useColorScheme();
@@ -101,7 +140,7 @@ export default function TodoScreen() {
 
       if (data) {
         setWorkouts(
-          data.map((w) => ({
+          data.map((w: any) => ({
             ...w,
             sets: w.sets as WorkoutSet[],
           }))
@@ -122,6 +161,7 @@ export default function TodoScreen() {
     } else {
       setLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate, session?.user?.id]);
 
   const addWorkout = async () => {
@@ -131,8 +171,9 @@ export default function TodoScreen() {
     const reps = parseInt(numReps) || 10;
 
     try {
-      const { data, error } = await supabase
+      const { data, error }: { data: any; error: any } = (await supabase
         .from("workouts")
+        // @ts-ignore - Supabase type inference issue
         .insert({
           user_id: session.user.id,
           name: newWorkout.trim(),
@@ -147,7 +188,7 @@ export default function TodoScreen() {
           completed: false,
         })
         .select()
-        .single();
+        .single()) as any;
 
       if (error) throw error;
 
@@ -182,13 +223,14 @@ export default function TodoScreen() {
     }));
 
     try {
-      const { error } = await supabase
+      const { error }: { error: any } = (await supabase
         .from("workouts")
+        // @ts-ignore - Supabase type inference issue
         .update({
           sets: newSets,
           completed: !allCompleted,
         })
-        .eq("id", id);
+        .eq("id", id)) as any;
 
       if (error) throw error;
 
@@ -237,13 +279,14 @@ export default function TodoScreen() {
     }
 
     try {
-      const { error } = await supabase
+      const { error }: { error: any } = (await supabase
         .from("workouts")
+        // @ts-ignore - Supabase type inference issue
         .update({
           sets: newSets,
           completed: newCompleted,
         })
-        .eq("id", workoutId);
+        .eq("id", workoutId)) as any;
 
       if (error) throw error;
 
@@ -523,19 +566,10 @@ export default function TodoScreen() {
                     onLongPress={() => deleteWorkout(item.id)}
                   >
                     {/* Progress Bar - Full Width */}
-                    <View style={styles.progressBarContainer}>
-                      <View
-                        style={[
-                          styles.progressBar,
-                          {
-                            width: `${(completedSets / totalSets) * 100}%`,
-                            backgroundColor: item.completed
-                              ? "#4CD964"
-                              : "#FF9500",
-                          },
-                        ]}
-                      />
-                    </View>
+                    <AnimatedProgressBar
+                      progress={completedSets / totalSets}
+                      isCompleted={item.completed}
+                    />
 
                     <View style={styles.workoutContent}>
                       <View style={styles.workoutMainRow}>
