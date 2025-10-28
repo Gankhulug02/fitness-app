@@ -43,6 +43,19 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "10f72271-80fb-4321-a2fe-a4795ccb64fd"
+      }
+    },
+    "owner": "etoyaa",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.e xpo.dev/10f72271-80fb-4321-a2fe-a4795ccb64fd"
     }
   }
 }
