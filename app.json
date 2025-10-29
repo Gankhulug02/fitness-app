@@ -9,7 +9,11 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.etoyaa.fitnessapp",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -19,7 +23,8 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.etoyaa.fitnessapp"
     },
     "web": {
       "output": "static",
@@ -55,7 +60,7 @@
       "policy": "appVersion"
     },
     "updates": {
-      "url": "https://u.e xpo.dev/10f72271-80fb-4321-a2fe-a4795ccb64fd"
+      "url": "https://u.expo.dev/10f72271-80fb-4321-a2fe-a4795ccb64fd"
     }
   }
 }

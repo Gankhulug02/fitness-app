@@ -18,6 +18,9 @@ export interface Database {
           date: string;
           sets: Json;
           completed: boolean;
+          repeat_mode: string;
+          repeat_weekdays: Json;
+          repeat_end_date: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -29,6 +32,9 @@ export interface Database {
           date: string;
           sets: Json;
           completed?: boolean;
+          repeat_mode?: string;
+          repeat_weekdays?: Json;
+          repeat_end_date?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -40,6 +46,9 @@ export interface Database {
           date?: string;
           sets?: Json;
           completed?: boolean;
+          repeat_mode?: string;
+          repeat_weekdays?: Json;
+          repeat_end_date?: string | null;
           created_at?: string;
           updated_at?: string;
         };

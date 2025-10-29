@@ -7,6 +7,10 @@ create table if not exists public.workouts (
   date date not null,
   sets jsonb not null default '[]'::jsonb,
   completed boolean default false,
+  -- Recurrence metadata
+  repeat_mode text default 'none' not null check (repeat_mode in ('none','everyday','weekdays')),
+  repeat_weekdays jsonb not null default '[]'::jsonb,
+  repeat_end_date date,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
   updated_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
@@ -48,4 +52,18 @@ create trigger set_updated_at
   before update on public.workouts
   for each row
   execute function public.handle_updated_at();
+
+-- Safe migration for existing databases
+do $$
+begin
+  -- Add columns if they don't exist
+  alter table public.workouts add column if not exists repeat_mode text default 'none' not null;
+  alter table public.workouts add column if not exists repeat_weekdays jsonb not null default '[]'::jsonb;
+  alter table public.workouts add column if not exists repeat_end_date date;
+  -- Add check constraint if missing
+  begin
+    alter table public.workouts add constraint workouts_repeat_mode_check check (repeat_mode in ('none','everyday','weekdays'));
+  exception when duplicate_object then null;
+  end;
+end $$;
 

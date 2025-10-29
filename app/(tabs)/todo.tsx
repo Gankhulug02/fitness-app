@@ -5,6 +5,9 @@ import { Colors } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { supabase } from "@/lib/supabase";
 import { useSupabase } from "@/lib/supabase-provider";
+import DateTimePicker, {
+  DateTimePickerEvent,
+} from "@react-native-community/datetimepicker";
 import { LinearGradient } from "expo-linear-gradient";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -12,6 +15,7 @@ import {
   Alert,
   Animated,
   FlatList,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -96,6 +100,20 @@ export default function TodoScreen() {
   const [repsPerSet, setRepsPerSet] = useState<string[]>(["10", "10", "10"]);
   const [collapsed, setCollapsed] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [repeatMode, setRepeatMode] = useState<
+    "none" | "everyday" | "weekdays"
+  >("none");
+  const [repeatWeekdays, setRepeatWeekdays] = useState<boolean[]>([
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+  ]);
+  const [endDate, setEndDate] = useState<string>(todayString);
+  const [showEndDatePicker, setShowEndDatePicker] = useState(false);
 
   // Generate week days - memoized to avoid recalculation on every render
   const weekDays = useMemo((): WeekDay[] => {
@@ -140,6 +158,68 @@ export default function TodoScreen() {
     });
   }, []);
 
+  const isValidDateString = useCallback((value: string) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+    const [yStr, mStr, dStr] = value.split("-");
+    const y = Number(yStr);
+    const m = Number(mStr);
+    const d = Number(dStr);
+    if (!y || !m || !d) return false;
+    const date = new Date(Date.UTC(y, m - 1, d));
+    return (
+      date.getUTCFullYear() === y &&
+      date.getUTCMonth() + 1 === m &&
+      date.getUTCDate() === d
+    );
+  }, []);
+
+  const generateDatesForInsert = useCallback((): string[] | null => {
+    if (repeatMode === "none") return [selectedDate];
+
+    if (!isValidDateString(endDate)) {
+      Alert.alert("Invalid end date", "Please enter end date as YYYY-MM-DD");
+      return null;
+    }
+
+    const start = new Date(selectedDate + "T00:00:00");
+    const finish = new Date(endDate + "T00:00:00");
+    if (finish < start) {
+      Alert.alert("Invalid range", "End date must be on or after start date");
+      return null;
+    }
+
+    const dates: string[] = [];
+    const cursor = new Date(start);
+    const MAX_COUNT = 180;
+    while (cursor <= finish) {
+      const dow = cursor.getDay();
+      const include =
+        repeatMode === "everyday" ||
+        (repeatMode === "weekdays" && !!repeatWeekdays[dow]);
+      if (include) {
+        dates.push(cursor.toISOString().split("T")[0]);
+        if (dates.length > MAX_COUNT) {
+          Alert.alert(
+            "Too many workouts",
+            `Please shorten the range (max ${MAX_COUNT} inserts).`
+          );
+          return null;
+        }
+      }
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
+    if (dates.length === 0) {
+      Alert.alert(
+        "No days selected",
+        "Adjust weekdays or end date to include at least one day."
+      );
+      return null;
+    }
+
+    return dates;
+  }, [repeatMode, selectedDate, endDate, repeatWeekdays, isValidDateString]);
+
   // Fetch workouts from Supabase - memoized to prevent unnecessary recreations
   const fetchWorkouts = useCallback(async () => {
     if (!session?.user?.id) return;
@@ -180,48 +260,77 @@ export default function TodoScreen() {
     }
   }, [session?.user?.id, fetchWorkouts]);
 
+  const userId = session?.user?.id;
+
   const addWorkout = useCallback(async () => {
-    if (!newWorkout.trim() || !session?.user?.id) return;
+    if (!newWorkout.trim() || !userId) return;
+
+    const dates = generateDatesForInsert();
+    if (!dates) return;
+
+    const setsPayload = repsPerSet.map((reps) => ({
+      reps: parseInt(reps) || 10,
+      completed: false,
+    }));
+
+    const rows = dates.map((dateStr) => ({
+      // @ts-ignore - Supabase type inference issue for JSON
+      user_id: userId!,
+      name: newWorkout.trim(),
+      emoji: "💪",
+      date: dateStr,
+      sets: setsPayload,
+      completed: false,
+      repeat_mode: repeatMode,
+      repeat_weekdays: repeatMode === "weekdays" ? repeatWeekdays : [],
+      repeat_end_date: repeatMode !== "none" ? endDate : null,
+    }));
 
     try {
       const { data, error }: { data: any; error: any } = (await supabase
         .from("workouts")
         // @ts-ignore - Supabase type inference issue
-        .insert({
-          user_id: session.user.id,
-          name: newWorkout.trim(),
-          emoji: "💪",
-          date: selectedDate,
-          sets: repsPerSet.map((reps) => ({
-            reps: parseInt(reps) || 10,
-            completed: false,
-          })),
-          completed: false,
-        })
-        .select()
-        .single()) as any;
+        .insert(rows)
+        .select()) as any;
 
       if (error) throw error;
 
-      if (data) {
-        setWorkouts((prev) => [
-          ...prev,
-          {
-            ...data,
-            sets: data.sets as WorkoutSet[],
-          },
-        ]);
+      if (Array.isArray(data)) {
+        const addedToday = data.filter((w: any) => w.date === selectedDate);
+        if (addedToday.length > 0) {
+          setWorkouts((prev) => [
+            ...prev,
+            ...addedToday.map((d: any) => ({
+              ...d,
+              sets: d.sets as WorkoutSet[],
+            })),
+          ]);
+        }
       }
 
       setNewWorkout("");
       setNumSets("3");
       setRepsPerSet(["10", "10", "10"]);
+      setRepeatMode("none");
+      setRepeatWeekdays([false, false, false, false, false, false, false]);
+      setEndDate(todayString);
       setShowInput(false);
     } catch (error) {
+      console.log("error", error);
       console.error("Error adding workout:", error);
       Alert.alert("Error", "Failed to add workout");
     }
-  }, [newWorkout, session?.user?.id, selectedDate, repsPerSet]);
+  }, [
+    newWorkout,
+    userId,
+    selectedDate,
+    repsPerSet,
+    generateDatesForInsert,
+    todayString,
+    repeatMode,
+    repeatWeekdays,
+    endDate,
+  ]);
 
   const toggleWorkout = useCallback(
     async (id: string) => {
@@ -704,6 +813,147 @@ export default function TodoScreen() {
               </View>
             </View>
 
+            {/* Repeat Configuration */}
+            <View
+              style={[styles.inputCard, { backgroundColor: colors.background }]}
+            >
+              <View style={styles.setsHeaderRow}>
+                <View style={styles.setsHeaderLeft}>
+                  <IconSymbol name="repeat" size={20} color={colors.tint} />
+                  <ThemedText style={styles.inputLabelLarge}>Repeat</ThemedText>
+                </View>
+              </View>
+
+              <View style={styles.segmentRow}>
+                {[
+                  { key: "none", label: "None" },
+                  { key: "everyday", label: "Every day" },
+                  { key: "weekdays", label: "Weekdays" },
+                ].map((opt) => {
+                  const active = repeatMode === (opt.key as any);
+                  return (
+                    <Pressable
+                      key={opt.key}
+                      onPress={() => setRepeatMode(opt.key as any)}
+                      style={[
+                        styles.segmentButton,
+                        {
+                          backgroundColor: active
+                            ? colors.tint
+                            : colors.cardBackground,
+                          borderColor: active ? colors.tint : colors.icon,
+                        },
+                      ]}
+                    >
+                      <ThemedText
+                        style={[
+                          styles.segmentText,
+                          {
+                            color: active
+                              ? colorScheme === "dark"
+                                ? "#000"
+                                : "#fff"
+                              : colors.text,
+                          },
+                        ]}
+                      >
+                        {opt.label}
+                      </ThemedText>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              {repeatMode === "weekdays" && (
+                <View style={styles.weekdayRow}>
+                  {["S", "M", "T", "W", "T", "F", "S"].map((d, idx) => {
+                    const active = repeatWeekdays[idx];
+                    return (
+                      <Pressable
+                        key={idx}
+                        onPress={() =>
+                          setRepeatWeekdays((prev) => {
+                            const next = [...prev];
+                            next[idx] = !next[idx];
+                            return next;
+                          })
+                        }
+                        style={[
+                          styles.weekdayChip,
+                          {
+                            backgroundColor: active
+                              ? colors.tint
+                              : colors.cardBackground,
+                            borderColor: active ? colors.tint : colors.icon,
+                          },
+                        ]}
+                      >
+                        <ThemedText
+                          style={{
+                            color: active
+                              ? colorScheme === "dark"
+                                ? "#000"
+                                : "#fff"
+                              : colors.text,
+                            fontWeight: "700",
+                          }}
+                        >
+                          {d}
+                        </ThemedText>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              )}
+
+              {repeatMode !== "none" && (
+                <View style={styles.endDateRow}>
+                  <ThemedText style={styles.inputLabelLarge}>
+                    End date
+                  </ThemedText>
+                  <Pressable
+                    onPress={() => setShowEndDatePicker(true)}
+                    style={[
+                      styles.endDateInput,
+                      {
+                        backgroundColor: colors.cardBackground,
+                        borderColor: colors.icon,
+                      },
+                    ]}
+                  >
+                    <ThemedText style={{ fontSize: 16, fontWeight: "600" }}>
+                      {endDate}
+                    </ThemedText>
+                  </Pressable>
+
+                  {showEndDatePicker && (
+                    <DateTimePicker
+                      value={new Date(endDate + "T00:00:00")}
+                      mode="date"
+                      display={Platform.OS === "ios" ? "spinner" : "default"}
+                      onChange={(
+                        event: DateTimePickerEvent,
+                        selectedDateValue?: Date
+                      ) => {
+                        if (Platform.OS !== "ios") setShowEndDatePicker(false);
+                        if (!selectedDateValue) return;
+                        const yyyy = selectedDateValue.getFullYear();
+                        const mm = String(
+                          selectedDateValue.getMonth() + 1
+                        ).padStart(2, "0");
+                        const dd = String(selectedDateValue.getDate()).padStart(
+                          2,
+                          "0"
+                        );
+                        setEndDate(`${yyyy}-${mm}-${dd}`);
+                      }}
+                      minimumDate={new Date(selectedDate + "T00:00:00")}
+                    />
+                  )}
+                </View>
+              )}
+            </View>
+
             {/* Action Buttons */}
             <View style={styles.actionButtons}>
               <Pressable
@@ -716,6 +966,18 @@ export default function TodoScreen() {
                   setNewWorkout("");
                   setNumSets("3");
                   setRepsPerSet(["10", "10", "10"]);
+                  setRepeatMode("none");
+                  setRepeatWeekdays([
+                    false,
+                    false,
+                    false,
+                    false,
+                    false,
+                    false,
+                    false,
+                  ]);
+                  setEndDate(todayString);
+                  setShowEndDatePicker(false);
                 }}
               >
                 <ThemedText style={styles.cancelButtonText}>Cancel</ThemedText>
@@ -1034,6 +1296,47 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 16,
     fontWeight: "700",
+  },
+  segmentRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  segmentButton: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: "center",
+  },
+  segmentText: {
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  weekdayRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 8,
+    marginTop: 8,
+  },
+  weekdayChip: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+  },
+  endDateRow: {
+    marginTop: 12,
+    gap: 8,
+  },
+  endDateInput: {
+    height: 44,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    fontSize: 16,
+    fontWeight: "600",
   },
   listContent: {
     paddingHorizontal: 20,
